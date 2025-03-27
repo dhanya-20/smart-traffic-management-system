@@ -1,0 +1,123 @@
+import React, { useState, useEffect } from 'react';
+import { Car, Clock3, CreditCard, MapPin, Moon, Sun, UserCheck, Search, Building, Mic, BatteryCharging } from 'lucide-react';
+import { getAuth, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { initializeApp } from 'firebase/app';
+import { getDatabase, ref, onValue, set } from 'firebase/database';
+import { QRCodeCanvas } from 'qrcode.react';
+import districts from './districts.json'; // Import district data
+
+const firebaseConfig = {
+  apiKey: 'YOUR_API_KEY',
+  authDomain: 'YOUR_PROJECT.firebaseapp.com',
+  databaseURL: 'https://YOUR_PROJECT.firebaseio.com',
+  projectId: 'YOUR_PROJECT_ID',
+  storageBucket: 'YOUR_PROJECT.appspot.com',
+  messagingSenderId: 'YOUR_SENDER_ID',
+  appId: 'YOUR_APP_ID',
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth();
+const database = getDatabase(app);
+const provider = new GoogleAuthProvider();
+
+function App() {
+  const [parkingSpots, setParkingSpots] = useState([]);
+  const [darkMode, setDarkMode] = useState(false);
+  const [user, setUser] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [district, setDistrict] = useState('');
+  const [carType, setCarType] = useState('Car');
+  const [voiceSearch, setVoiceSearch] = useState(false);
+
+  useEffect(() => {
+    const parkingRef = ref(database, 'parkingSpots');
+    onValue(parkingRef, (snapshot) => {
+      const data = snapshot.val() || {};
+      const spotsArray = Object.keys(data).map(key => ({ id: key, ...data[key] }));
+      setParkingSpots(spotsArray);
+    });
+  }, []);
+
+  const handleGoogleLogin = () => {
+    signInWithPopup(auth, provider).then((result) => {
+      setUser(result.user);
+    });
+  };
+
+  const handleParkCar = (spotId, licensePlate) => {
+    set(ref(database, `parkingSpots/${spotId}`), {
+      occupied: true,
+      licensePlate,
+      entryTime: Date.now(),
+      district,
+      carType,
+    });
+  };
+
+  const handleRemoveCar = (spotId) => {
+    set(ref(database, `parkingSpots/${spotId}`), {
+      occupied: false,
+    });
+  };
+
+  const calculateFee = (entryTime) => {
+    const hours = Math.ceil((Date.now() - entryTime) / (1000 * 60 * 60));
+    return hours * 5;
+  };
+
+  return (
+    <div className={darkMode ? 'bg-black text-white' : 'bg-gradient-to-r from-blue-300 to-purple-300 text-black'}>
+      <header className="flex justify-between p-4 items-center bg-gradient-to-r from-indigo-500 to-pink-600 text-white shadow-xl rounded-b-lg">
+        <h1 className="text-3xl font-extrabold tracking-wide">🚗 Smart Parking Hub</h1>
+        <div className="flex items-center gap-4">
+          <input 
+            type="text" 
+            placeholder="Search Spot..." 
+            className="p-2 rounded-lg text-black shadow-md" 
+            onChange={(e) => setSearchTerm(e.target.value)} 
+          />
+          <Search className="text-white" />
+          <select className="p-2 rounded-lg text-black shadow-md" onChange={(e) => setDistrict(e.target.value)}>
+            <option value="">Select District</option>
+            {districts.map((dist) => (
+              <option key={dist} value={dist}>{dist}</option>
+            ))}
+          </select>
+          <Building className="text-white" />
+          <select className="p-2 rounded-lg text-black shadow-md" onChange={(e) => setCarType(e.target.value)}>
+            <option>Car</option>
+            <option>Bike</option>
+            <option>EV</option>
+            <option>Truck</option>
+          </select>
+          <BatteryCharging className="text-yellow-400" title="EV Charging Available" />
+          <button onClick={() => setDarkMode(!darkMode)}>
+            {darkMode ? <Sun className="text-yellow-300" /> : <Moon className="text-gray-300" />}
+          </button>
+          {user ? <UserCheck className="text-green-400" /> : <button onClick={handleGoogleLogin} className="bg-white text-black p-2 rounded">Login with Google</button>}
+        </div>
+      </header>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4">
+        {parkingSpots.filter(spot => spot.id.includes(searchTerm) && (!district || spot.district === district)).map((spot, index) => (
+          <div key={spot.id} className={`p-4 rounded-lg shadow-xl ${spot.occupied ? 'bg-red-600' : 'bg-green-500'} text-white border-2 border-gray-400 hover:scale-105 transition transform duration-300` }>
+            <p className="text-xl font-semibold">Spot {index + 1} - {spot.district}</p>
+            {spot.occupied ? (
+              <>
+                <p className="text-lg">🚘 {spot.licensePlate} ({spot.carType})</p>
+                <p className="text-lg font-bold">Fee: ${calculateFee(spot.entryTime)}</p>
+                <QRCodeCanvas value={`https://payment.com/pay?amount=${calculateFee(spot.entryTime)}`} className="my-2" />
+                <button onClick={() => handleRemoveCar(spot.id)} className="bg-yellow-300 text-black py-2 px-4 rounded-lg">Pay & Exit</button>
+              </>
+            ) : (
+              <button onClick={() => handleParkCar(spot.id, 'XYZ-1234')} className="bg-blue-400 text-black py-2 px-4 rounded-lg">🚗 Park Here</button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default App;
